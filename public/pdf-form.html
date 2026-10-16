@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Coordinate Finder</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    #pdfContainer {
+      border: 1px solid #ccc;
+      position: relative;
+      overflow: auto;
+      margin-top: 20px;
+    }
+    #coordinateInfo {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      z-index: 1000;
+    }
+    #pageControls {
+      margin-bottom: 10px;
+    }
+    canvas {
+      display: block;
+    }
+    .crosshair {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid red;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 100;
+    }
+    #coordinateList {
+      margin-top: 20px;
+      border: 1px solid #ccc;
+      padding: 10px;
+    }
+    .coordinate-item {
+      margin-bottom: 5px;
+    }
+    button {
+      padding: 8px 12px;
+      margin-right: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>PDF Coordinate Finder</h1>
+  <p>Click anywhere on the PDF to get coordinates. The coordinates will be displayed in PDF coordinate system (origin at top-left) to match the coordinate system used in pdfConfig.js.</p>
+  
+  <div style="margin-bottom: 20px;">
+    <h3>Load PDF:</h3>
+    <button id="loadTemplateBtn">Load Template (Annexure J.pdf)</button>
+    <button id="loadDebugBtn">Load Debug PDF (debug_annexure_j.pdf)</button>
+    <span style="margin: 0 10px;">OR</span>
+    <input type="file" id="pdfInput" accept=".pdf" />
+  </div>
+  
+  <div id="pageControls">
+    <button id="prevPage">Previous Page</button>
+    <span id="pageInfo">Page 1 of 1</span>
+    <button id="nextPage">Next Page</button>
+    <span id="scaleInfo">Scale: 1.0</span>
+    <button id="zoomIn">Zoom In</button>
+    <button id="zoomOut">Zoom Out</button>
+  </div>
+  
+  <div id="pdfContainer"></div>
+  
+  <div id="coordinateInfo" style="display: none;">
+    X: <span id="xCoord">0</span>, Y: <span id="yCoord">0</span>
+    <div id="fieldNameInfo" style="margin-top: 5px; color: #ffeb3b; font-weight: bold;"></div>
+  </div>
+  
+  <div id="coordinateList">
+    <h3>Saved Coordinates</h3>
+    <div id="savedCoordinates"></div>
+    <button id="clearCoordinates">Clear All</button>
+      <button id="copyToClipboard">Copy to Clipboard</button>
+      <div style="margin-top: 15px;">
+        <label>
+          <input type="checkbox" id="showFieldNames" checked> Show Field Names
+        </label>
+      </div>
+      <p><strong>Note:</strong> These coordinates now match the coordinate system used in pdfConfig.js. Use these values directly in your configuration.</p>
+    </div>
+  
+  <script>
+    // PDF.js initialization
+    const pdfjsLib = window.pdfjsLib;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    
+    let pdfDoc = null;
+    let pageNum = 1;
+    let pageRendering = false;
+    let pageNumPending = null;
+    let scale = 1.0;
+    let canvas = null;
+    let ctx = null;
+    let savedCoordinates = [];
+    
+    function renderPage(num) {
+      pageRendering = true;
+      
+      pdfDoc.getPage(num).then(function(page) {
+        const viewport = page.getViewport({ scale });
+        
+        if (!canvas) {
+          canvas = document.createElement('canvas');
+          ctx = canvas.getContext('2d');
+          document.getElementById('pdfContainer').appendChild(canvas);
+        }
+        
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport
+        };
+        
+        const renderTask = page.render(renderContext);
+        
+        renderTask.promise.then(function() {
+          pageRendering = false;
+          document.getElementById('pageInfo').textContent = `Page ${pageNum} of ${pdfDoc.numPages}`;
+          document.getElementById('scaleInfo').textContent = `Scale: ${scale.toFixed(1)}`;
+          
+          if (pageNumPending !== null) {
+            renderPage(pageNumPending);
+            pageNumPending = null;
+          }
+
+          // Render annotations (Form Fields)
+          if (document.getElementById('showFieldNames').checked) {
+            renderAnnotations(page, viewport);
+          }
+        });
+      });
+    }
+
+    function renderAnnotations(page, viewport) {
+        page.getAnnotations().then(function(annotations) {
+            // Remove existing annotation layer if any
+            const existingLayer = document.querySelector('.annotation-layer');
+            if (existingLayer) existingLayer.remove();
+
+            const annotationLayer = document.createElement('div');
+            annotationLayer.className = 'annotation-layer';
+            annotationLayer.style.position = 'absolute';
+            annotationLayer.style.top = '0';
+            annotationLayer.style.left = '0';
+            annotationLayer.style.pointerEvents = 'none'; // Allow clicking through to canvas
+            document.getElementById('pdfContainer').appendChild(annotationLayer);
+
+            annotations.forEach(function(annotation) {
+                if (annotation.subtype === 'Widget' && annotation.fieldName) {
+                    const rect = viewport.convertToViewportRectangle(annotation.rect);
+                    // rect is [x1, y1, x2, y2] where (x1,y1) is bottom-left in PDF coords usually, 
+                    // but convertToViewportRectangle handles transformation.
+                    // Usually it returns [xMin, yMin, xMax, yMax] in canvas pixels.
+                    
+                    const x = rect[0];
+                    const y = rect[1]; // Top-left Y (in viewport coordinates, y grows downwards)
+                    const width = rect[2] - rect[0];
+                    const height = rect[3] - rect[1]; // yMax - yMin? Or yMin - yMax?
+
+                    // Let's debug rect values if needed.
+                    // normalize rect:
+                    const rX = Math.min(rect[0], rect[2]);
+                    const rY = Math.min(rect[1], rect[3]);
+                    const rW = Math.abs(rect[2] - rect[0]);
+                    const rH = Math.abs(rect[3] - rect[1]);
+
+                    const div = document.createElement('div');
+                    div.style.position = 'absolute';
+                    div.style.left = `${rX}px`;
+                    div.style.top = `${rY}px`;
+                    div.style.width = `${rW}px`;
+                    div.style.height = `${rH}px`;
+                    div.style.pointerEvents = 'auto'; // Enable clicking on fields
+                    div.style.cursor = 'pointer';
+                    
+                    const isCheckbox = annotation.fieldType === 'Btn';
+                    
+                    div.style.border = isCheckbox ? '2px solid red' : '1px solid blue';
+                    div.style.backgroundColor = isCheckbox ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 0, 255, 0.1)';
+                    div.style.color = isCheckbox ? 'red' : 'blue';
+                    div.style.fontSize = '10px';
+                    div.style.overflow = 'hidden';
+                    div.style.whiteSpace = 'nowrap';
+                    div.title = annotation.fieldName;
+
+                    // Add click event to show field name
+                    div.onclick = (e) => {
+                        e.stopPropagation(); // Prevent coordinate finder from firing
+                        
+                        // Display in UI instead of alert
+                        const nameInfo = document.getElementById('fieldNameInfo');
+                        nameInfo.textContent = `Selected Field: ${annotation.fieldName}`;
+                        document.getElementById('coordinateInfo').style.display = 'block';
+                        
+                        // Also update X/Y to the field's top-left
+                        document.getElementById('xCoord').textContent = Math.round(rX / scale);
+                        document.getElementById('yCoord').textContent = Math.round(rY / scale);
+                    };
+                    
+                    // Label
+                     const label = document.createElement('span');
+                     label.textContent = annotation.fieldName;
+                     label.style.position = 'absolute';
+                     label.style.top = '-15px';
+                     label.style.left = '0';
+                     label.style.backgroundColor = 'white';
+                     label.style.padding = '1px';
+                     label.style.border = '1px solid #ccc';
+                     label.style.zIndex = '10';
+                     label.style.fontSize = '10px';
+                     label.style.color = 'black';
+                     
+                     div.appendChild(label);
+                     annotationLayer.appendChild(div);
+                 }
+             });
+        });
+    }
+    
+    function queueRenderPage(num) {
+      if (pageRendering) {
+        pageNumPending = num;
+      } else {
+        renderPage(num);
+      }
+    }
+    
+    function onPrevPage() {
+      if (pageNum <= 1) {
+        return;
+      }
+      pageNum--;
+      queueRenderPage(pageNum);
+    }
+    
+    function onNextPage() {
+      if (pageNum >= pdfDoc.numPages) {
+        return;
+      }
+      pageNum++;
+      queueRenderPage(pageNum);
+    }
+    
+    function zoomIn() {
+      scale += 0.2;
+      queueRenderPage(pageNum);
+    }
+    
+    function zoomOut() {
+      if (scale <= 0.2) return;
+      scale -= 0.2;
+      queueRenderPage(pageNum);
+    }
+    
+    document.getElementById('pdfInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const fileReader = new FileReader();
+        
+        fileReader.onload = function() {
+          const typedarray = new Uint8Array(this.result);
+          
+          pdfjsLib.getDocument(typedarray).promise.then(function(pdf) {
+            pdfDoc = pdf;
+            pageNum = 1;
+            renderPage(pageNum);
+          });
+        };
+        
+        fileReader.readAsArrayBuffer(file);
+      }
+    });
+    
+    document.getElementById('prevPage').addEventListener('click', onPrevPage);
+    document.getElementById('nextPage').addEventListener('click', onNextPage);
+    document.getElementById('zoomIn').addEventListener('click', zoomIn);
+    document.getElementById('zoomOut').addEventListener('click', zoomOut);
+    
+    // Add listener for checkbox toggle
+    document.getElementById('showFieldNames').addEventListener('change', function() {
+        if (this.checked) {
+            renderPage(pageNum); // Re-render to show annotations
+        } else {
+            const layer = document.querySelector('.annotation-layer');
+            if (layer) layer.remove();
+        }
+    });
+
+    // Helper to load PDF from URL
+    function loadPdfFromUrl(url) {
+      console.log('Loading PDF from:', url);
+      fetch(url)
+        .then(response => {
+          if (!response.ok) throw new Error('Network response was not ok');
+          return response.arrayBuffer();
+        })
+        .then(buffer => {
+          const typedarray = new Uint8Array(buffer);
+          pdfjsLib.getDocument(typedarray).promise.then(function(pdf) {
+            pdfDoc = pdf;
+            pageNum = 1;
+            renderPage(pageNum);
+          });
+        })
+        .catch(error => {
+          console.error('Error loading PDF:', error);
+          alert('Error loading PDF: ' + error.message);
+        });
+    }
+
+    document.getElementById('loadTemplateBtn').addEventListener('click', () => {
+      loadPdfFromUrl('/assets/Annexure%20J.pdf');
+    });
+
+    document.getElementById('loadDebugBtn').addEventListener('click', () => {
+      loadPdfFromUrl('/uploads/debug_annexure_j.pdf');
+    });
+
+    document.getElementById('pdfContainer').addEventListener('click', function(e) {
+      if (!canvas) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      // Convert to PDF coordinates (matching the coordinate system used in pdfConfig.js)
+      const pdfX = Math.round(x / scale);
+      const pdfY = Math.round(y / scale); // Changed to use top-left origin to match pdfConfig.js
+      
+      document.getElementById('xCoord').textContent = pdfX;
+      document.getElementById('yCoord').textContent = pdfY;
+      document.getElementById('fieldNameInfo').textContent = ''; // Clear previous field name
+      document.getElementById('coordinateInfo').style.display = 'block';
+      
+      // Create crosshair
+      const crosshair = document.createElement('div');
+      crosshair.className = 'crosshair';
+      crosshair.style.left = `${x}px`;
+      crosshair.style.top = `${y}px`;
+      document.getElementById('pdfContainer').appendChild(crosshair);
+      
+      // Save coordinate
+      savedCoordinates.push({
+        page: pageNum,
+        x: pdfX,
+        y: pdfY,
+        description: `Page ${pageNum}, X: ${pdfX}, Y: ${pdfY}`
+      });
+      
+      updateSavedCoordinates();
+      
+      // Remove crosshair after 2 seconds
+      setTimeout(() => {
+        crosshair.remove();
+      }, 2000);
+    });
+    
+    function updateSavedCoordinates() {
+      const container = document.getElementById('savedCoordinates');
+      container.innerHTML = '';
+      
+      savedCoordinates.forEach((coord, index) => {
+        const item = document.createElement('div');
+        item.className = 'coordinate-item';
+        item.innerHTML = `
+          <strong>${index + 1}.</strong> ${coord.description}
+          <button class="remove-btn" data-index="${index}">Remove</button>
+        `;
+        container.appendChild(item);
+      });
+      
+      // Add event listeners to remove buttons
+      document.querySelectorAll('.remove-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const index = parseInt(this.getAttribute('data-index'));
+          savedCoordinates.splice(index, 1);
+          updateSavedCoordinates();
+        });
+      });
+    }
+    
+    document.getElementById('clearCoordinates').addEventListener('click', function() {
+      savedCoordinates = [];
+      updateSavedCoordinates();
+    });
+    
+    document.getElementById('copyToClipboard').addEventListener('click', function() {
+      const text = savedCoordinates.map((coord, index) => 
+        `${index + 1}. Page ${coord.page}, X: ${coord.x}, Y: ${coord.y}`
+      ).join('\n');
+      
+      navigator.clipboard.writeText(text).then(() => {
+        alert('Coordinates copied to clipboard!');
+      });
+    });
+  </script>
+</body>
+</html>

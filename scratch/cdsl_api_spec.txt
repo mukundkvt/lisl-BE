@@ -1,0 +1,494 @@
+
+--- PAGE 1 ---
+API Specification For BO Setup and Modify Upload v1.4 
+Central Depository Services (I) Limited       Page 1 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+API Specification For BO Setup / Modify Upload  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+--- PAGE 2 ---
+API Specification For BO Setup and Modify Upload v1.4 
+Central Depository Services (I) Limited       Page 2 
+ 
+ 
+ 
+ 
+ 
+Table of Contents 
+ 
+ 
+Introduction 
+ 
+Background ..........................................................................................................................4 
+Purpose .................................................................................................................................4 
+Scope ....................................................................................................................................4 
+User Requirements ...............................................................................................................4 
+ 
+Technical Requirements 
+ 
+Pre Requisite ........................................................................................................................4 
+API Sequence Diagram.........................................................................................................5 
+Description ...........................................................................................................................5 
+API Request URL's ..............................................................................................................7 
+Access Restriction's ..............................................................................................................7 
+ 
+     API Details 
+ 
+Request Sample.....................................................................................................................7 
+Response Sample ..................................................................................................................8 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+--- PAGE 3 ---
+API Specification For BO Setup and Modify Upload v1.4 
+Central Depository Services (I) Limited       Page 3 
+ 
+ 
+ 
+1. Introduction 
+ 
+a) Background 
+ 
+ Currently DP uploads transactions files from BO Upload module in CDAS application. 
+ Once file is processed at Host then USER downloads the success/failure report from “Reports” 
+module or report will be downloaded by system through “auto download” facility. 
+ 
+b) Purpose 
+ 
+ BO Upload transaction files through API will be provided to CDAS Users 
+ DP can upload file for BO Setup and Modify through API. 
+ 
+c) Pre-Requisites 
+ Separate user should be created by DP for API access 
+ DP should have the secret key generated during user creation for API data signing 
+ 
+d) Scope 
+ 
+ This Document contains the API Specification for BO Upload through API. 
+ 
+e) User Input  
+ 
+For the purpose of BO upload instantly, following Data will be captured at CDSL  
+ 
+ Upload ID 
+ Security Token 
+ File Attachment 
+ 
+After Submission of data, system should generate the DP wise unique acknowledgment number. 
+This Acknowledgment number can be used by DP to track the request status. 
+ 
+f) Upload Status Inquiry 
+ User can check upload file status by calling status Inquiry api (api/CDASAPI/Status) 
+ User can also download success failure report file by calling response download 
+api(api/CDASAPI/Download) 
+ 
+(For detail please refer API Specification For Authentication and Transaction Upload) 
+ 
+ 
+ 
+ 
+--- PAGE 4 ---
+API Specification For BO Setup and Modify Upload v1.4 
+Central Depository Services (I) Limited       Page 4 
+2. Technical Requirements  
+ 
+Pre-
+  
+  
+ White listing of IP Address will be required for subscriber. 
+ 
+3. API Sequence Diagram (IP Address will be validated in case of all requests i.e. in upload 
+API ) 
+ 
+    
+   
+ 
+  Subscriber 
+ 
+ 
+   
+ 
+ 
+Encrypted Payload Data &  
+Digital Signature (Optional)  
+   
+   Upload ID, Security Token & 
+   File Existence validation 
+File Upload 
+     
+ 
+Response  
+   
+    Generate Unique Acknowledgment ID 
+   Acknowledgment ID 
+ 
+ 
+ 
+ 
+ 
+ 
+  API Request URL’s 
+ 
+ 
+ 
+Sr . 
+No 
+API Name Method URL 
+1 BO Setup Upload 
+API 
+POST api/BOAPI/SetupUpload 
+2 BO Modify Upload 
+API 
+POST /api/BOAPI/ModUpload 
+ 
+ 
+ 
+ 
+ 
+D
+P
+ 
+S
+E
+R
+V
+E
+R 
+ 
+API Gateway 
+ 
+CDSL Server 
+ 
+File Server 
+ 
+--- PAGE 5 ---
+API Specification For BO Setup and Modify Upload v1.4 
+Central Depository Services (I) Limited       Page 5 
+4. Access Restriction’s 
+ 
+ Request will be received from a specific server (i.e. IP Address) of DP. 
+ Server IP Address will be shared by DP for configuration at CDAS Master data. 
+ 
+ 
+5. API Details: 
+     
+    BO Setup Upload API: 
+ 
+ In BO setup upload user has to upload a zip file with main file and all signature images. 
+ DP has to keep all signature files and main file in a folder with name same as the upload file name and then 
+folder should be compressed(only in .ZIP format). 
+ Zip file naming convention :: 
+ 
+< Main Upload file name>.zip 
+ 
+Ex:   
+If DP is NOT opted for encryption: 
+   Main Upload file :  08010900.00760  
+   Upload ZIP file:   08010900.00760.zip 
+  
+ 
+If DP is opted for encryption: 
+   Main Upload file :    08010900.00760.enc.34 
+   Main Upload ZIP file:  08010900.00760.enc.34.zip 
+  
+ DP has to upload only Upload ZIP file . 
+ If user uploads only main upload file (without signature Images in zip file) then file will get processed and 
+BOID will be generated with status “Pending for activation”. To activate BOIDs user has to upload 
+signature from CDAS application. 
+ If user uploads zip file without main file and only with signature images file then file will be rejected. User 
+can see the status in status Inquiry API 
+ 
+ 
+ 
+Request Sample: 
+ 
+"Header": { 
+  “AuthToken”: “Some token value”, 
+"AuthSign": “XXXX”  --  (SHA256 & AES Encrypted data), 
+“FileComputeHash”: “XXXXXX”, 
+    } 
+ 
+ 
+"Body":  
+{ 
+"UploadId": “08”, 
+"Signature": “XXXX” 
+} 
+ 
+ 
+--- PAGE 6 ---
+API Specification For BO Setup and Modify Upload v1.4 
+Central Depository Services (I) Limited       Page 6 
+ 
+Request body and upload file should be sent as parameter (Media Type: MULTIPART_FORM_DA TA).  
+ 
+Encryption steps : 
+ 
+1. Body data: 
+ 
+‘"Body":  
+{ 
+"UploadId": “08”, 
+           "Signature": “” 
+} 
+                 
+           Now this request body will be encoded using SHA256. 
+ 
+2. The result of step 1 will be encrypted with user Secret Key using AES (RijndaelManaged). 
+3. The result of step 2 will be added to the request header parameter as AuthSign. 
+ 
+4. Upload file byte array will be encoded using SHA256 and will be added request header 
+parameter as FileComputeHash. 
+ 
+Now the request header and body will be  
+ 
+"Header": { 
+      “AuthToken”: “Some token value”, 
+"AuthSign": “XXXX”    (SHA256 & AES Encrypted data),  
+“FileComputeHash”: “XXXXXX” (File byte array with SHA256), 
+    } 
+ 
+"Body":  
+{ 
+"UploadId": “08”, 
+"Signature": “” 
+} 
+This request body will be signed by subscriber Private Key and the respective signature will be 
+generated. 
+ 
+   The digital signature will sent in detached mode.  
+ 
+5. Now the final request body will be  
+ 
+"Body":  
+{ 
+"UploadId": “08”, 
+"Signature": “XXXX” 
+} 
+ 
+ 
+ 
+--- PAGE 7 ---
+API Specification For BO Setup and Modify Upload v1.4 
+Central Depository Services (I) Limited       Page 7 
+If user has not opted for digital signature then "Signature" will be BLANK. 
+  
+"Body":  
+{ 
+"UploadId": “08”, 
+"Signature": “” 
+} 
+ 
+ 
+Response Sample: 
+ 
+In case of success: 
+ 
+"Body":  
+{ 
+ "success": true, 
+ "AcknowledgmentID": “Some value”  
+} 
+ 
+In case of failure 
+"Body":  
+{ 
+ "success": false,   
+ "UploadResponse":  
+        { 
+         "ErrorId":"ERR002", 
+   "ErrorMessage": "Invalid Upload File Name" 
+ } 
+}  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+--- PAGE 8 ---
+API Specification For BO Setup and Modify Upload v1.4 
+Central Depository Services (I) Limited       Page 8 
+BO Modify Upload API: 
+ 
+ 
+Request Sample: 
+ 
+"Header": { 
+  “AuthToken”: “Some token value”, 
+"AuthSign": “XXXX”,  --  (SHA256 & AES Encrypted data) 
+“FileComputeHash”: “XXXXXX”  
+    } 
+"Body":  
+{ 
+"DPID": “10900”, 
+"UploadId": “11”, 
+"Signature": “XXXX” 
+} 
+ 
+ 
+Request body and upload file should be sent as parameter (Media Type: MULTIPART_FORM_DATA).  
+ 
+Encryption steps : 
+ 
+1. Body data: 
+ 
+‘"Body":  
+{ 
+           "DPID": “10900”, 
+"UploadId": “11”, 
+           "Signature": “” 
+} 
+        
+            Now this request body data will be encoded using SHA256. 
+ 
+2. The result of step 1 will be encrypted with user Secret Key using AES (RijndaelManaged). 
+3. The result of step 2 will be added to the request header parameter as AuthSign. 
+4. Upload file byte array will be encoded using SHA256 and will be added request header 
+parameter as FileComputeHash. 
+ 
+Now the request header and body will be  
+ 
+"Header": { 
+  “AuthToken”: “Some token value”, 
+"AuthSign": “XXXX”    (SHA256 & AES Encrypted data),  
+“FileComputeHash”: “XXXXXX” (File byte array with SHA256) 
+    } 
+ 
+ 
+ 
+ 
+ 
+--- PAGE 9 ---
+API Specification For BO Setup and Modify Upload v1.4 
+Central Depository Services (I) Limited       Page 9 
+"Body":  
+{ 
+"DPID": “10900”, 
+"UploadId": “11”, 
+             "Signature": “” 
+} 
+ 
+5. If user has opted for digital signature, then the above request body will be signed by subscriber 
+Private Key and the respective signature will be generated. 
+ 
+   The digital signature will be sent in detached mode.  
+ 
+Now the final request body will be  
+ 
+"Body":  
+{ 
+"DPID": “XXXXXX”, 
+"UploadId": “11”, 
+"Signature": “XXXX” 
+} 
+ 
+If user has not opted for digital signature then "Signature" will be BLANK. 
+  
+"Body":  
+{ 
+"DPID": “XXXXXX”, 
+"UploadId": “11”, 
+"Signature": “” 
+} 
+ 
+ 
+Response Sample: 
+ 
+In case of success: 
+ 
+"Body":  
+{ 
+ "success": true, 
+ "AcknowledgmentID": “Some value”  
+} 
+In case of failure 
+"Body":  
+{ "success": false,   
+ "UploadResponse":  
+        { 
+         "ErrorId":"ERR002", 
+   "ErrorMessage": "Invalid Upload File Name" 
+ } 
+}  
